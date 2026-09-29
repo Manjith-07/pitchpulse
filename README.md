@@ -265,6 +265,46 @@ run-rate metrics used `value or "—"`, which silently hid genuine `0.0` values
 (e.g. a chase that has already reached its target) behind the "no data"
 placeholder. Fixed to check `is not None` explicitly.
 
+**Post-phase-4 fixes:**
+- `/historical/player/{name}` was doing an exact, case-sensitive match, so
+  "Dhoni" or "kohli" found nothing (Cricsheet stores "MS Dhoni", "V Kohli").
+  It's now a case-insensitive partial match (also applied to the team filters
+  on the other two historical endpoints) and always returns every match —
+  earlier it also silently capped results at 10 while still reporting that
+  capped count as if it were the true total (e.g. "sharma" matches 21 players;
+  it said "10" and dropped the rest, including RG Sharma). There's no
+  realistic row-count risk here (the mart has on the order of a thousand
+  players total), so the fix is simply not capping the query rather than
+  adding pagination.
+- The live-match dropdown showed raw match_ids (a CricAPI UUID, or a
+  `sim-...` test id) instead of anything readable. It now shows
+  `{batting_team} vs {bowling_team}, {score}, sim` via Streamlit's
+  `format_func`, resolved from each tracked match's live state.
+- `simulate_match.py` now forces every simulated match into a `sim-` prefix
+  namespace and self-cleans its Redis key + `live_events_log` rows a few
+  seconds after finishing (pass `--no-cleanup` to keep one around
+  deliberately), so repeated test runs no longer pile up stale entries in the
+  live-match dropdown.
+- The dashboard's visual design was reworked from Streamlit's default look to
+  a deliberate one grounded in a floodlit night match: a near-black
+  green-tinted background, pitch-green as the one primary accent, ball-red
+  held back exclusively for live/urgent signals (the "LIVE" badge), Space
+  Grotesk for headings, and JetBrains Mono with tabular figures for every
+  live/constantly-updating number so digits don't jitter in width as they
+  change. Win probability is the visual hero of the live tab (large, not
+  boxed in a metric card); score and run rates read as one scoreboard-style
+  strip beneath it; the historical player search renders as compact
+  scorecard rows rather than a card grid. All of `st.metric` and the default
+  bordered-card look were replaced with hand-built HTML/CSS for full control.
+  Iterated against screenshots taken with the same Playwright setup used for
+  phase 4's original verification, which caught two real bugs along the way:
+  a blanket `font-family` CSS override that broke Streamlit's own icon font
+  (rendered as literal text like "keyboard_double_arrow_left" instead of an
+  arrow glyph), and a 3-color cycle for the phase-trends chart's per-season
+  colors that repeated identical colors once there were more than 3 seasons
+  in view — replaced with a true interpolated gradient between two tones of
+  the accent color, sized to however many seasons are actually present.
+
 ## Repository structure
 
 See `docs/architecture.md` for the full architecture writeup. Top-level layout:

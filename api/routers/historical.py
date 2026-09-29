@@ -52,20 +52,18 @@ class PhaseTrend(BaseModel):
     average_run_rate: Optional[float] = None
 
 
-MAX_PLAYER_MATCHES = 10
-
-
 @router.get("/player/{player_name}", response_model=List[PlayerCareerStats])
 def get_player_stats(player_name: str, db: PGConnection = Depends(get_db)):
     """Case-insensitive partial match on player name (Cricsheet stores names
     as initials + surname, e.g. 'MS Dhoni', so an exact match on 'Dhoni' alone
-    would never hit). Returns every match up to a small cap rather than
-    guessing which one the caller meant -- if there's more than one, it's the
-    caller's job to pick, e.g. by showing the short list to a user."""
+    would never hit). Returns every match -- no cap -- so the caller always
+    gets the true set to disambiguate from. player_career_stats has on the
+    order of a thousand rows at most, so an uncapped ILIKE scan here is cheap;
+    this is a search endpoint, not a paginated listing."""
     with db.cursor() as cur:
         cur.execute(
-            "SELECT * FROM player_career_stats WHERE player ILIKE %s ORDER BY player LIMIT %s",
-            (_like_pattern(player_name), MAX_PLAYER_MATCHES),
+            "SELECT * FROM player_career_stats WHERE player ILIKE %s ORDER BY player",
+            (_like_pattern(player_name),),
         )
         rows = cur.fetchall()
     if not rows:
