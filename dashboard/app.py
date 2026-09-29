@@ -123,28 +123,40 @@ def render_live_tab():
         st.rerun()
 
 
+def render_player_card(stats: dict):
+    batting_col, bowling_col = st.columns(2)
+    with batting_col:
+        st.markdown("**Batting**")
+        st.metric("Runs", stats["runs_scored"])
+        st.metric("Balls faced", stats["balls_faced"])
+        st.metric("Strike rate", stats["batting_strike_rate"])
+        st.metric("Dismissals", stats["dismissals"])
+        st.metric("Boundaries", stats["boundaries_hit"])
+    with bowling_col:
+        st.markdown("**Bowling**")
+        st.metric("Balls bowled", stats["balls_bowled"])
+        st.metric("Runs conceded", stats["runs_conceded"])
+        st.metric("Wickets", stats["wickets_taken"])
+        st.metric("Economy rate", stats["economy_rate"])
+
+
 def render_historical_tab():
     st.subheader("Player career stats")
     player_name = st.text_input("Player name", placeholder="e.g. V Kohli")
     if player_name:
-        stats, error = api_get(f"/historical/player/{player_name}")
+        matches, error = api_get(f"/historical/player/{player_name}")
         if error:
             st.warning(error)
+        elif len(matches) == 1:
+            render_player_card(matches[0])
         else:
-            batting_col, bowling_col = st.columns(2)
-            with batting_col:
-                st.markdown("**Batting**")
-                st.metric("Runs", stats["runs_scored"])
-                st.metric("Balls faced", stats["balls_faced"])
-                st.metric("Strike rate", stats["batting_strike_rate"])
-                st.metric("Dismissals", stats["dismissals"])
-                st.metric("Boundaries", stats["boundaries_hit"])
-            with bowling_col:
-                st.markdown("**Bowling**")
-                st.metric("Balls bowled", stats["balls_bowled"])
-                st.metric("Runs conceded", stats["runs_conceded"])
-                st.metric("Wickets", stats["wickets_taken"])
-                st.metric("Economy rate", stats["economy_rate"])
+            # Cricsheet stores names as initials + surname, so a partial
+            # search like "Dhoni" or "kohli" often matches more than one
+            # player -- let the user pick rather than guessing for them.
+            st.info(f"{len(matches)} players matched '{player_name}':")
+            names = [m["player"] for m in matches]
+            chosen = st.selectbox("Pick a player", names, key="player_disambiguation")
+            render_player_card(next(m for m in matches if m["player"] == chosen))
 
     st.divider()
     st.subheader("Team win percentage by venue")

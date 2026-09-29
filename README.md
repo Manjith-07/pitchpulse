@@ -160,7 +160,15 @@ API, and the dashboard without touching CricAPI at all:
 ```bash
 docker compose --profile streaming run --rm producer python ingestion/streaming/simulate_match.py demo-001 --interval 1 --target 175
 ```
-Then check the result: `docker compose exec redis redis-cli GET match:demo-001:state`.
+Then check the result: `docker compose exec redis redis-cli GET match:sim-demo-001:state`.
+
+Every simulated match_id is automatically namespaced under `sim-` (so
+`demo-001` above becomes `sim-demo-001`), and by default the script cleans up
+its own Redis key and `live_events_log` rows a few seconds after the
+simulated innings finishes -- so running it repeatedly during development
+doesn't leave stale entries cluttering the dashboard's live-match dropdown.
+Pass `--no-cleanup` to keep a simulated match's data around on purpose (e.g.
+to leave it visible in the dashboard for a while).
 
 The consumer also creates a `live_events_log` table in Postgres and appends
 every event to it, so live matches can be replayed/analyzed afterward.
