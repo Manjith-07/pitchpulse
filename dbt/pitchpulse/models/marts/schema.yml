@@ -1,0 +1,54 @@
+version: 2
+
+models:
+  - name: player_career_stats
+    description: "Career batting and bowling aggregates per player."
+    columns:
+      - name: player
+        tests:
+          - not_null
+          - unique
+
+  - name: team_venue_performance
+    description: "Win percentage per team, grouped by venue."
+    columns:
+      - name: team
+        tests:
+          - not_null
+      - name: venue
+        tests:
+          - not_null
+
+  - name: phase_wise_trends
+    description: "Average run rate by phase, team, and season."
+    columns:
+      - name: phase
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['powerplay', 'middle', 'death']
+
+  - name: match_state_features
+    description: >
+      Ball-by-ball match state features for the second innings, used to train
+      the win probability model.
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+      - name: chasing_team_won
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1]
+      - name: balls_remaining
+        tests:
+          - not_null
+      - name: wickets_in_hand
+        tests:
+          - not_null
+      - name: runs_needed
+        tests:
+          - not_null

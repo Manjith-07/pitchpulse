@@ -1,0 +1,12 @@
+pitchpulse:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
+      user: "{{ env_var('POSTGRES_USER', 'pitchpulse') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD', 'pitchpulse') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5432') | as_number }}"
+      dbname: "{{ env_var('POSTGRES_DB', 'pitchpulse') }}"
+      schema: public
+      threads: 4

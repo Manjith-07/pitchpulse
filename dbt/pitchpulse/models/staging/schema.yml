@@ -1,0 +1,57 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: public
+    tables:
+      - name: raw_matches
+        columns:
+          - name: match_id
+            tests:
+              - not_null
+              - unique
+      - name: raw_deliveries
+        columns:
+          - name: match_id
+            tests:
+              - not_null
+
+models:
+  - name: stg_matches
+    description: "One row per match, cleaned and standardized from raw_matches."
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - unique
+      - name: team1
+        tests:
+          - not_null
+      - name: team2
+        tests:
+          - not_null
+
+  - name: stg_deliveries
+    description: "One row per delivery, with added phase and boundary flags."
+    columns:
+      - name: match_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_matches')
+              field: match_id
+      - name: batting_team
+        tests:
+          - not_null
+      - name: batter
+        tests:
+          - not_null
+      - name: bowler
+        tests:
+          - not_null
+      - name: phase
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['powerplay', 'middle', 'death']
