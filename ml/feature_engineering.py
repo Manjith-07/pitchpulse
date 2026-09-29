@@ -69,7 +69,11 @@ def clean_features(df: pd.DataFrame) -> pd.DataFrame:
     value there, not a missing-data problem. required_run_rate has no nulls
     in practice since a chase always ends before balls_remaining hits 0."""
     df = df.copy()
-    df["current_run_rate"] = df["current_run_rate"].fillna(0)
+    # Cast to float before filling: an all-numeric column read from Postgres
+    # is already float64, but a column built from plain Python values (e.g.
+    # in a test) can end up as generic "object" dtype, which makes fillna
+    # emit a noisy downcasting FutureWarning.
+    df["current_run_rate"] = df["current_run_rate"].astype(float).fillna(0)
     return df
 
 

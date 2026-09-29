@@ -2,6 +2,11 @@
 
 PitchPulse is a cricket analytics platform that combines a historical batch pipeline with a live streaming pipeline into a single API and dashboard. Historical ball-by-ball data (via Cricsheet) is loaded into a Postgres warehouse and transformed with dbt into analytics-ready tables, which are used to train a win probability model. During a live match, a streaming pipeline (Kafka + a Python producer/consumer) ingests real-time updates, maintains current match state in Redis, and applies the trained model to produce a live-updating win probability. A FastAPI service exposes both the historical stats and the live match state, and a Streamlit dashboard visualizes both.
 
+<p float="left">
+  <img src="docs/screenshot_live.png" width="49%" alt="Live match tab: win probability hero number, scoreboard strip, and trend chart" />
+  <img src="docs/screenshot_historical.png" width="49%" alt="Historical explorer tab: player scorecard rows and team win% table" />
+</p>
+
 ## Status
 
 This project is being built phase by phase. Current progress:
@@ -11,10 +16,13 @@ This project is being built phase by phase. Current progress:
 - [x] Phase 2: streaming pipeline (Kafka producer/consumer, Redis state)
 - [x] Phase 3: win probability model (feature engineering, training, evaluation)
 - [x] Phase 4: serving API and dashboard (FastAPI, Streamlit)
-- [ ] Phase 5: testing, CI, documentation, polish
+- [x] Phase 5: testing, CI, documentation, polish
 - [ ] Phase 6 (optional): cloud deployment
 
 ## Architecture
+
+See [`docs/architecture.md`](docs/architecture.md) for the diagram and a
+component-by-component writeup. In short:
 
 ```
 Historical archive (Cricsheet)          Live match feed (cricket API)
@@ -54,9 +62,114 @@ The win probability model is trained offline from warehouse data and loaded insi
 - **Containerization**: Docker + Docker Compose
 - **CI**: GitHub Actions
 
-## Setup
+## Quickstart
 
-Setup instructions will be filled in as each phase is completed. The full walkthrough (fresh clone to running dashboard) will land in Phase 5.
+Fresh clone to a running dashboard. See "Build notes" further down for the
+detailed rationale behind each piece.
+
+### 1. Prerequisites
+
+Docker and Docker Compose (Compose v2 -- `docker compose`, not the older
+standalone `docker-compose`).
+
+### 2. Configure
+
+```bash
+cp .env.example .env
+```
+Then edit `.env`:
+- `AIRFLOW_UID` — on Linux/WSL, set this to your host user's UID (run `id -u`).
+  Airflow's container needs it to write to bind-mounted folders; 1000 (the
+  default) is correct for most single-user Linux/WSL setups.
+- `LIVE_CRICKET_API_KEY` — only needed to poll a **real** live match (free key
+  at [cricapi.com](https://cricapi.com)). The historical pipeline, model
+  training, and the dashboard's simulated live-match demo all work without it.
+
+### 3. Download historical data
+
+```bash
+wget https://cricsheet.org/downloads/ipl_male_json.zip -P data/
+unzip data/ipl_male_json.zip -d data/ipl_raw
+```
+
+### 4. Bring up the stack
+
+```bash
+docker compose up -d
+```
+This starts Postgres, Kafka, Redis, Airflow, the API, and the dashboard.
+`kafka-init` runs once (creates the Kafka topic) and exits — that's expected,
+not a failure. The streaming producer/consumer are intentionally **not**
+started by this command; see step 8.
+
+Give it a minute, then check everything's up: `docker compose ps` (everything
+should show `Up`, most `healthy`).
+
+### 5. Load historical data and build the warehouse
+
+Open the Airflow UI at <http://localhost:8080> (see "Phase 1: batch pipeline"
+below for the login), unpause and trigger `pitchpulse_batch_pipeline` — or
+from the CLI:
+```bash
+docker compose exec airflow airflow dags unpause pitchpulse_batch_pipeline
+docker compose exec airflow airflow dags trigger pitchpulse_batch_pipeline
+```
+This parses the downloaded JSON into Postgres and runs `dbt build`, which is
+what the dashboard's historical tab reads from.
+
+### 6. Train the win probability model
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r ml/requirements.txt
+POSTGRES_HOST=localhost python ml/feature_engineering.py
+POSTGRES_HOST=localhost python ml/train_win_probability.py
+POSTGRES_HOST=localhost python ml/evaluate.py   # optional sanity check
+```
+This saves `ml/model/win_probability_model.pkl`. If the streaming consumer is
+already running, restart it to pick the model up
+(`docker compose --profile streaming restart consumer`); otherwise it'll pick
+it up the next time it starts.
+
+### 7. Open it
+
+- Dashboard: <http://localhost:8501>
+- API docs: <http://localhost:8000/docs>
+
+The historical tab works as soon as step 5 finishes. For the live tab, see
+the next step.
+
+### 8. Live match streaming (optional)
+
+```bash
+docker compose --profile streaming up -d consumer
+docker compose --profile streaming run --rm producer python ingestion/streaming/simulate_match.py demo --interval 2 --target 175
+```
+This simulates a live match with no API key and no quota spent — refresh the
+dashboard's live tab and pick `sim-demo`. For an actual live match, see
+"Phase 2: streaming pipeline" below for the real producer and CricAPI's daily quota.
+
+## Testing & CI
+
+```bash
+pip install -r tests/requirements.txt
+pytest tests/ -v
+```
+17 unit tests cover the Cricsheet JSON parsing logic (`load_cricsheet.py`) and
+the train/test split + feature-cleaning logic (`feature_engineering.py`) —
+both pure Python/pandas, no database needed.
+
+`.github/workflows/ci.yml` runs on every push: spins up a Postgres service
+container, creates the (empty) raw schema, runs `dbt build` against it —
+exercising all 32 dbt tests, which pass vacuously against zero rows, enough to
+confirm the SQL and test definitions are valid without downloading the full
+dataset in CI — then runs the pytest suite.
+
+## Build notes (phase by phase)
+
+The condensed setup is above; this section is the detailed rationale and
+context behind each phase, including a couple of real bugs found and fixed
+along the way.
 
 ### Phase 0 (done)
 
@@ -305,18 +418,52 @@ placeholder. Fixed to check `is not None` explicitly.
   in view — replaced with a true interpolated gradient between two tones of
   the accent color, sized to however many seasons are actually present.
 
+### Phase 5 (done): testing, CI, documentation, polish
+
+See "Testing & CI" above for how to run the suite. A few notes:
+- Tests are pure unit tests (no DB, no network) so they run the same way
+  locally and in CI: `tests/test_load_cricsheet.py` hand-builds a small
+  Cricsheet-shaped match dict (real Cricsheet JSON lives under the gitignored
+  `data/`, which won't exist in a fresh clone or in CI) and checks
+  `parse_match_row`/`parse_delivery_rows` against it directly, including edge
+  cases like a wide (illegal delivery, still gets a row) and a wicket.
+  `tests/test_feature_engineering.py` checks `clean_features` and
+  `split_by_match` (the by-match-id, no-leakage train/test split) against
+  small synthetic DataFrames.
+- `conftest.py` at the repo root puts `ingestion/batch/` and `ml/` on
+  `sys.path` so tests can `import load_cricsheet` / `import
+  feature_engineering` directly — neither directory is a package, since both
+  are meant to be run as standalone scripts.
+- CI's `dbt build` step needed the raw tables to exist before dbt's staging
+  models (which select from them as sources) would even compile, but
+  downloading the full Cricsheet archive just for a schema check felt like
+  the wrong tradeoff for CI speed/reliability. It calls `ensure_schema()`
+  directly (the same idempotent `CREATE TABLE IF NOT EXISTS` the loader uses)
+  to create empty tables instead.
+- The full `docker compose up -d` (every service in one command, per this
+  phase's own checklist — notably *not* including the streaming
+  producer/consumer, which stay behind the `streaming` profile on purpose)
+  was verified from a cold `docker compose down` to confirm the Quickstart
+  above is accurate, not just plausible.
+- Real screenshots (`docs/screenshot_live.png`, `docs/screenshot_historical.png`)
+  replace a demo GIF — a static image was enough to show the design, and
+  didn't require additional tooling to record/encode a video.
+
 ## Repository structure
 
 See `docs/architecture.md` for the full architecture writeup. Top-level layout:
 
 ```
 pitchpulse/
-├── ingestion/       # batch loader + streaming producer/consumer
-├── dags/            # Airflow DAGs
-├── dbt/             # dbt project (staging + mart models)
-├── ml/              # feature engineering, model training, evaluation
-├── api/             # FastAPI service
-├── dashboard/       # Streamlit dashboard
-├── tests/           # unit tests
-└── docs/            # architecture notes
+├── ingestion/                # batch loader + streaming producer/consumer
+├── dags/                     # Airflow DAGs
+├── dbt/                      # dbt project (staging + mart models)
+├── ml/                       # feature engineering, model training, evaluation
+├── api/                      # FastAPI service
+├── dashboard/                # Streamlit dashboard
+├── tests/                    # unit tests (+ requirements.txt)
+├── docs/                     # architecture notes, diagram, screenshots
+├── .github/workflows/ci.yml  # GitHub Actions: dbt build + pytest on every push
+├── conftest.py                # pytest sys.path setup for ingestion/ml imports
+└── pytest.ini                 # pytest config (testpaths = tests)
 ```

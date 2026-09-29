@@ -2,6 +2,10 @@
 
 Two parallel data paths converge into one serving layer:
 
+![Architecture diagram](architecture.svg)
+
+The same flow, as text:
+
 ```
 Historical archive (Cricsheet)          Live match feed (cricket API)
         |                                        |
@@ -41,6 +45,3 @@ written to Redis alongside the match state.
   streaming consumer to load.
 - **Serving layer**: `api/` (FastAPI) exposes historical stats (from Postgres marts)
   and live match state (from Redis). `dashboard/` (Streamlit) visualizes both.
-
-A placeholder diagram image will be added here in Phase 5 alongside the finished
-README.
