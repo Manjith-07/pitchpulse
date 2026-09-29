@@ -19,3 +19,6 @@ airflow/plugins/
 .DS_Store
 .vscode/
 *.egg-info/
+
+# Claude Code local state
+.claude/

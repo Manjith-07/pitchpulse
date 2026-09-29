@@ -8,7 +8,7 @@ This project is being built phase by phase. Current progress:
 
 - [x] Phase 0: environment and project setup
 - [x] Phase 1: batch pipeline (Postgres warehouse, loader, Airflow DAG, dbt models)
-- [ ] Phase 2: streaming pipeline (Kafka producer/consumer, Redis state)
+- [x] Phase 2: streaming pipeline (Kafka producer/consumer, Redis state)
 - [ ] Phase 3: win probability model (feature engineering, training, evaluation)
 - [ ] Phase 4: serving API and dashboard (FastAPI, Streamlit)
 - [ ] Phase 5: testing, CI, documentation, polish
@@ -118,6 +118,57 @@ If that file isn't there, set a known password instead:
 ```bash
 docker compose exec airflow airflow users reset-password --username admin --password <your-password>
 ```
+
+### Phase 2 (done): streaming pipeline
+
+Kafka (KRaft mode, single broker) and Redis now run via Docker Compose alongside
+Postgres and Airflow:
+
+```bash
+docker compose up -d redis kafka kafka-init
+```
+
+`kafka-init` creates the `live-match-events` topic (1 partition) and exits —
+that's expected, it's a one-shot job, not a long-running service.
+
+The producer and consumer are gated behind the `streaming` Compose profile, so
+they never start with a plain `docker compose up -d` — the producer should
+only run while you're actually watching a match, not continuously, to respect
+CricAPI's free-tier quota of 100 requests/day. **This project polls every 2-3
+minutes (randomized) instead of the usual 10-15 seconds** for that reason —
+even so, a full ~3.5 hour T20 uses roughly 70-105 requests, close to the whole
+daily budget, so only run the producer against a real match when you actually
+intend to watch it.
+
+```bash
+# build the images once
+docker compose --profile streaming build
+
+# start the consumer (always listening, applies the model, writes to Redis)
+docker compose --profile streaming up -d consumer
+
+# start the producer against a real live match id (from CricAPI's
+# currentMatches endpoint), OR set LIVE_CRICKET_MATCH_ID in .env and run
+# `docker compose --profile streaming up -d producer` instead
+docker compose --profile streaming run --rm producer python ingestion/streaming/producer.py <match_id>
+```
+
+**Testing/demoing without spending API quota:** `simulate_match.py` publishes a
+fabricated but plausible run chase straight to Kafka, in the same message
+schema the real producer uses, so you can exercise the consumer, Redis, the
+API, and the dashboard without touching CricAPI at all:
+```bash
+docker compose --profile streaming run --rm producer python ingestion/streaming/simulate_match.py demo-001 --interval 1 --target 175
+```
+Then check the result: `docker compose exec redis redis-cli GET match:demo-001:state`.
+
+The consumer also creates a `live_events_log` table in Postgres and appends
+every event to it, so live matches can be replayed/analyzed afterward.
+
+**Note:** until Phase 3 trains and saves a model to `ml/model/win_probability_model.pkl`,
+the consumer runs fine but writes `win_probability: null` into each match's Redis
+state (it logs a warning once at startup). Restart the consumer after Phase 3
+to pick up the trained model — no rebuild needed, `ml/` is bind-mounted.
 
 ## Repository structure
 
