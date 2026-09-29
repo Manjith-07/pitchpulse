@@ -10,7 +10,7 @@ This project is being built phase by phase. Current progress:
 - [x] Phase 1: batch pipeline (Postgres warehouse, loader, Airflow DAG, dbt models)
 - [x] Phase 2: streaming pipeline (Kafka producer/consumer, Redis state)
 - [x] Phase 3: win probability model (feature engineering, training, evaluation)
-- [ ] Phase 4: serving API and dashboard (FastAPI, Streamlit)
+- [x] Phase 4: serving API and dashboard (FastAPI, Streamlit)
 - [ ] Phase 5: testing, CI, documentation, polish
 - [ ] Phase 6 (optional): cloud deployment
 
@@ -221,6 +221,41 @@ ball of a completed innings it can legitimately see `balls_remaining: 0`. Rather
 than feed the model that out-of-distribution input, `compute_win_probability()`
 short-circuits to a deterministic 0.0 or 1.0 whenever the innings has
 effectively ended (no balls or no wickets left) instead of calling the model.
+
+### Phase 4 (done): serving API and dashboard
+
+```bash
+docker compose up -d api dashboard
+```
+
+- **API** (FastAPI) on `http://localhost:8000`, interactive docs at `/docs`.
+  - `GET /health` — liveness check
+  - `GET /historical/player/{player_name}` — career batting/bowling stats from `player_career_stats`
+  - `GET /historical/team/{team_name}/venues` — win% by venue from `team_venue_performance`
+  - `GET /historical/phase-trends?team=&season=` — phase-wise run rate trends (both params optional)
+  - `GET /live/matches` — match_ids currently tracked in Redis
+  - `GET /live/match/{match_id}` — full current state + win probability for one match, 404 if not tracked
+- **Dashboard** (Streamlit) on `http://localhost:8501`, with a sidebar mode toggle:
+  - **Live match**: score, current/required run rate, win probability, and a
+    live-updating win probability line chart. The chart is built client-side —
+    each auto-refresh (every few seconds, or a manual "Refresh now" button)
+    polls `/live/match/{id}` and appends the new point to that match's history
+    kept in the browser session, since the API itself only ever returns the
+    latest snapshot.
+  - **Historical explorer**: player search, team win% by venue table, and a
+    phase-wise run rate bar chart (one bar series per season).
+
+Both containers bind-mount their source directories, so editing `api/` or
+`dashboard/` code takes effect immediately (uvicorn `--reload` / Streamlit's
+own file watcher) without rebuilding the image.
+
+**Verification:** endpoints were checked with `curl` against real IPL data and
+a live Redis match state; the dashboard was checked by actually driving it in
+a headless browser (Playwright, since no dev-container display/browser was
+available) and screenshotting each view — this caught a real bug where the
+run-rate metrics used `value or "—"`, which silently hid genuine `0.0` values
+(e.g. a chase that has already reached its target) behind the "no data"
+placeholder. Fixed to check `is not None` explicitly.
 
 ## Repository structure
 
