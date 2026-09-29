@@ -9,7 +9,7 @@ This project is being built phase by phase. Current progress:
 - [x] Phase 0: environment and project setup
 - [x] Phase 1: batch pipeline (Postgres warehouse, loader, Airflow DAG, dbt models)
 - [x] Phase 2: streaming pipeline (Kafka producer/consumer, Redis state)
-- [ ] Phase 3: win probability model (feature engineering, training, evaluation)
+- [x] Phase 3: win probability model (feature engineering, training, evaluation)
 - [ ] Phase 4: serving API and dashboard (FastAPI, Streamlit)
 - [ ] Phase 5: testing, CI, documentation, polish
 - [ ] Phase 6 (optional): cloud deployment
@@ -169,6 +169,58 @@ every event to it, so live matches can be replayed/analyzed afterward.
 the consumer runs fine but writes `win_probability: null` into each match's Redis
 state (it logs a warning once at startup). Restart the consumer after Phase 3
 to pick up the trained model — no rebuild needed, `ml/` is bind-mounted.
+
+### Phase 3 (done): win probability model
+
+Trains on the `match_state_features` mart (Postgres must have data loaded —
+see Phase 1). Not containerized (per the spec, this is fine to run from a venv);
+tested here via a throwaway container on the compose network instead of a host
+venv, but either works:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r ml/requirements.txt
+# with POSTGRES_HOST=localhost (or whatever resolves to your Postgres) in the environment:
+python ml/feature_engineering.py      # prints train/test split sizes, saves feature_list.json
+python ml/train_win_probability.py    # trains both models, saves the better one + evaluation_report.txt
+python ml/evaluate.py                 # sanity-checks the saved model against hand-picked scenarios
+```
+
+Splitting is done by `match_id` (never mid-match), so no match's deliveries leak
+between train and test. Both a `LogisticRegression` baseline and a
+`GradientBoostingClassifier` are trained on `runs_needed`, `balls_remaining`,
+`wickets_in_hand`, `current_run_rate`, `required_run_rate`; whichever scores
+higher AUC on the held-out test set is saved as `win_probability_model.pkl`.
+Current result (from `ml/model/evaluation_report.txt`):
+
+```
+Model                        AUC       Log loss
+LogisticRegression           0.8904    0.4107
+GradientBoostingClassifier   0.8922    0.4088
+Selected model: GradientBoostingClassifier
+```
+
+`ml/evaluate.py`'s sanity check confirms the model's predictions track cricketing
+intuition, e.g. needing 5 off the last ball with 1 wicket in hand scores ~4.5%,
+while needing 5 off 12 balls with 8 wickets in hand scores ~98%.
+
+**Note on `numpy`/`scikit-learn`/`joblib` version pinning:** these are pinned to
+*exact* matching versions in both `ml/requirements.txt` and
+`ingestion/streaming/requirements.txt`. joblib's pickle format for a fitted
+scikit-learn model isn't guaranteed compatible across numpy/scikit-learn
+versions, and training with a newer version than the streaming consumer has
+installed will crash the consumer on `joblib.load()`. If you change one, change
+the other to match, then rebuild the consumer image.
+
+**Note on `ml/evaluate.py` and the live consumer's edge cases:** the model is
+only ever trained on "about to face this ball" states, where the minimum
+`balls_remaining`/`wickets_in_hand` seen is 1, never 0 (once either hits 0 the
+innings is over and no further training rows exist). The live consumer
+(`ingestion/streaming/consumer.py`) reports *post-ball* state, so on the final
+ball of a completed innings it can legitimately see `balls_remaining: 0`. Rather
+than feed the model that out-of-distribution input, `compute_win_probability()`
+short-circuits to a deterministic 0.0 or 1.0 whenever the innings has
+effectively ended (no balls or no wickets left) instead of calling the model.
 
 ## Repository structure
 

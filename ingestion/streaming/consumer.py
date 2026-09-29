@@ -126,10 +126,23 @@ def compute_win_probability(event: dict, current_run_rate, required_run_rate, mo
         return None
 
     runs_needed = max(event["target"] - event["current_score"], 0)
+    balls_remaining = event["balls_remaining"]
+    wickets_in_hand = max(10 - (event.get("wickets_lost") or 0), 0)
+
+    # The innings is over (no balls or no wickets left) and the model was
+    # never trained on this state -- training features are always "about to
+    # face this ball", so the minimum balls_remaining/wickets_in_hand seen in
+    # training is 1, not 0 (once either hits 0, the innings ends and no
+    # further deliveries exist to generate a training row from). The outcome
+    # here is already known for certain, so skip the model rather than feed
+    # it an out-of-distribution required_run_rate.
+    if balls_remaining <= 0 or wickets_in_hand <= 0:
+        return 1.0 if runs_needed <= 0 else 0.0
+
     features_by_name = {
         "runs_needed": runs_needed,
-        "balls_remaining": event["balls_remaining"],
-        "wickets_in_hand": max(10 - (event.get("wickets_lost") or 0), 0),
+        "balls_remaining": balls_remaining,
+        "wickets_in_hand": wickets_in_hand,
         "current_run_rate": current_run_rate or 0,
         "required_run_rate": required_run_rate or 0,
     }

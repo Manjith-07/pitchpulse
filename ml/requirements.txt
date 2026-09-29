@@ -1,0 +1,11 @@
+pandas~=2.2
+# numpy/scikit-learn/joblib are pinned to exact versions matching
+# ingestion/streaming/requirements.txt -- the pickled model this script
+# produces must deserialize correctly in the consumer's environment, and
+# joblib's pickle format is not guaranteed compatible across numpy/sklearn
+# versions.
+numpy==1.26.4
+scikit-learn==1.9.1
+joblib==1.6.0
+psycopg2-binary~=2.9
+python-dotenv~=1.0
