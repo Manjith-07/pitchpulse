@@ -1,0 +1,21 @@
+data/
+*.zip
+.env
+__pycache__/
+*.pyc
+ml/model/*.pkl
+.venv/
+
+# dbt
+dbt/pitchpulse/target/
+dbt/pitchpulse/dbt_packages/
+dbt/pitchpulse/logs/
+
+# Airflow
+airflow/logs/
+airflow/plugins/
+
+# OS/editor
+.DS_Store
+.vscode/
+*.egg-info/
