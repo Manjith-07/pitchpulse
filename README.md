@@ -143,11 +143,16 @@ the next step.
 
 ```bash
 docker compose --profile streaming up -d consumer
-docker compose --profile streaming run --rm producer python ingestion/streaming/simulate_match.py demo --interval 2 --target 175
+docker compose --profile streaming run --rm producer python ingestion/streaming/simulate_match.py demo --interval 2 --target 175 --no-cleanup
 ```
 This simulates a live match with no API key and no quota spent — refresh the
-dashboard's live tab and pick `sim-demo`. For an actual live match, see
-"Phase 2: streaming pipeline" below for the real producer and CricAPI's daily quota.
+dashboard's live tab and pick `sim-demo`. `--no-cleanup` matters here: by
+default the script deletes its own Redis/Postgres data ~5 seconds after the
+simulated innings finishes (so repeated test runs don't clutter the dropdown
+during development), which for a one-off demo often means it's already gone
+by the time you switch over to look — `--no-cleanup` keeps it around until
+you delete it yourself. For an actual live match, see "Phase 2: streaming
+pipeline" below for the real producer and CricAPI's daily quota.
 
 ## Testing & CI
 

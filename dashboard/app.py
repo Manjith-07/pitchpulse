@@ -355,8 +355,11 @@ def render_live_tab():
         st.info(
             "No live matches currently tracked. Start the producer against a real "
             "match, or try `docker compose --profile streaming run --rm producer "
-            "python ingestion/streaming/simulate_match.py demo-001` to see this "
-            "tab populated without spending any API quota."
+            "python ingestion/streaming/simulate_match.py demo-001 --no-cleanup` to "
+            "see this tab populated without spending any API quota. Without "
+            "`--no-cleanup`, the simulated match deletes itself a few seconds after "
+            "it finishes, so it can look like nothing happened if you check here "
+            "too late."
         )
         return
 
