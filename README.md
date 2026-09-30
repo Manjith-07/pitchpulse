@@ -161,9 +161,9 @@ both pure Python/pandas, no database needed.
 
 `.github/workflows/ci.yml` runs on every push: spins up a Postgres service
 container, creates the (empty) raw schema, runs `dbt build` against it —
-exercising all 32 dbt tests, which pass vacuously against zero rows, enough to
-confirm the SQL and test definitions are valid without downloading the full
-dataset in CI — then runs the pytest suite.
+building all 6 models and running all 26 dbt tests, which pass vacuously
+against zero rows, enough to confirm the SQL and test definitions are valid
+without downloading the full dataset in CI — then runs the pytest suite.
 
 ## Build notes (phase by phase)
 
@@ -461,9 +461,12 @@ pitchpulse/
 ├── ml/                       # feature engineering, model training, evaluation
 ├── api/                      # FastAPI service
 ├── dashboard/                # Streamlit dashboard
+├── airflow/                  # custom Airflow image (Dockerfile + dbt venv)
+├── postgres/                 # first-boot init script (creates the airflow db)
 ├── tests/                    # unit tests (+ requirements.txt)
 ├── docs/                     # architecture notes, diagram, screenshots
 ├── .github/workflows/ci.yml  # GitHub Actions: dbt build + pytest on every push
+├── docker-compose.yml
 ├── conftest.py                # pytest sys.path setup for ingestion/ml imports
 └── pytest.ini                 # pytest config (testpaths = tests)
 ```
