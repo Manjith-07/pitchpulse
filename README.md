@@ -155,9 +155,10 @@ dashboard's live tab and pick `sim-demo`. For an actual live match, see
 pip install -r tests/requirements.txt
 pytest tests/ -v
 ```
-17 unit tests cover the Cricsheet JSON parsing logic (`load_cricsheet.py`) and
-the train/test split + feature-cleaning logic (`feature_engineering.py`) —
-both pure Python/pandas, no database needed.
+21 unit tests cover the Cricsheet JSON parsing logic (`load_cricsheet.py`), the
+train/test split + feature-cleaning logic (`feature_engineering.py`), and the
+over/ball/balls-remaining bookkeeping in the match simulator
+(`simulate_match.py`) — all pure Python/pandas, no database needed.
 
 `.github/workflows/ci.yml` runs on every push: spins up a Postgres service
 container, creates the (empty) raw schema, runs `dbt build` against it —
@@ -448,6 +449,23 @@ See "Testing & CI" above for how to run the suite. A few notes:
 - Real screenshots (`docs/screenshot_live.png`, `docs/screenshot_historical.png`)
   replace a demo GIF — a static image was enough to show the design, and
   didn't require additional tooling to record/encode a video.
+
+### Post-phase-5 fix: `simulate_match.py` under-counted balls bowled by a full over
+
+`consumer.py` (and the real `producer.py`) treat `over_number` as "how many
+overs are fully complete", reconstructing balls bowled as
+`over_number * 6 + ball_number`. `simulate_match.py`'s per-over loop emitted
+its 0-indexed loop variable as `over_number` directly instead of `+1`, so
+every single event under-reported balls bowled by a full over throughout the
+whole simulated innings — not just cosmetically: `current_run_rate` was wrong
+from the very first event, and at the last over specifically, `balls_remaining`
+hit 0 a full over early, which made `compute_win_probability`'s "the innings
+has already ended" short-circuit fire prematurely and force `win_probability`
+to `0.0`/`1.0` instead of a real model prediction. Fixed by emitting
+`over_index + 1` (completed-overs count) instead of the raw loop index.
+`tests/test_simulate_match.py` now asserts the invariant that would have
+caught it (`balls_bowled + balls_remaining == 120` for every event), verified
+to actually fail against the old logic before being merged.
 
 ## Repository structure
 

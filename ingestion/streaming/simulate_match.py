@@ -60,7 +60,7 @@ def generate_chase(target: int, batting_team: str, bowling_team: str):
     20-over chase that plausibly ends either just short or just over target."""
     score = 0
     wickets = 0
-    for over_number in range(20):
+    for over_index in range(20):
         # a run rate that trends toward "just enough", with some randomness
         runs_needed_pace = target / 20
         over_runs = max(0, round(random.gauss(runs_needed_pace, 3)))
@@ -68,12 +68,23 @@ def generate_chase(target: int, batting_team: str, bowling_team: str):
         if random.random() < 0.12 and wickets < 9:
             wickets += 1
 
-        legal_balls_bowled = (over_number + 1) * 6
+        # consumer.py (and the real producer) treat over_number as "how many
+        # overs are fully complete", reconstructing balls bowled as
+        # over_number*6 + ball_number. This event represents the state right
+        # after over_index (0-indexed) has been fully bowled, so that's
+        # over_index+1 complete overs -- NOT over_index, which was the bug:
+        # every event under-reported balls bowled by a full over, making
+        # balls_remaining (and current_run_rate) wrong throughout the whole
+        # innings, most visibly at the last over where it made
+        # compute_win_probability's "innings is over" short-circuit fire a
+        # full over early.
+        completed_overs = over_index + 1
+        legal_balls_bowled = completed_overs * 6
         yield {
             "match_id": None,  # filled in by caller
             "timestamp": None,  # filled in by caller
             "innings_number": 2,
-            "over_number": over_number,
+            "over_number": completed_overs,
             "ball_number": 0,
             "batting_team": batting_team,
             "bowling_team": bowling_team,
@@ -143,7 +154,8 @@ def main():
         event["timestamp"] = datetime.now(timezone.utc).isoformat()
         producer.send(topic, value=event)
         producer.flush()
-        logger.info("Published: over %d, score %d/%d", event["over_number"] + 1, event["current_score"], event["wickets_lost"])
+        logger.info("Published: over %d, score %d/%d, balls_remaining=%d",
+                    event["over_number"], event["current_score"], event["wickets_lost"], event["balls_remaining"])
         time.sleep(args.interval)
 
     logger.info("Simulated match %s finished", match_id)
